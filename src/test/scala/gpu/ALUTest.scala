@@ -111,5 +111,20 @@ class ALUTest extends AnyFlatSpec with ChiselScalatestTester {
       dut.io.ALUOut.expect(0.U)
     }
   }
+  
+  // reset
+  "ALU resetted" should "output 0" in {
+    test(new ALU) { dut =>
+      dut.reset.poke(true.B)
+      dut.io.enable.poke(true.B)
+      dut.io.coreState.poke("b101".U)
+      dut.io.decodedALUArithmeticMux.poke(ALUOp.ADD)
+      dut.io.decodedALUOutputMux.poke(false.B)
+      dut.io.rs.poke(10.U)
+      dut.io.rt.poke(2.U)
+      dut.clock.step()
 
+      dut.io.ALUOut.expect(0.U) 
+    }
+  }
 }

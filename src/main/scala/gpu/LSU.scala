@@ -2,6 +2,11 @@
 package gpu
 import chisel3._
 
+// Create enum for LSU operations
+object LSUStateEnum extends ChiselEnum {
+    val IDLE, REQUESTING, WAITING, DONE = Value
+}
+
 class LSU extends Module {
     val io = IO(new Bundle {
         // if current block has less threads than block size, then some LSU inactive
@@ -30,56 +35,48 @@ class LSU extends Module {
         val memWriteReady = Input(Bool())
 
         // LSU Outputs
-        val LSUState = Output(UInt(2.W))
+        val LSUState = Output(LSUStateEnum())
         val LSUOut = Output(UInt(8.W)) // 8-bit output
     })
 
-    // default values
-    io.memReadValid := false.B
-    io.memWriteValid := false.B
-    io.memReadAddress := 0.U
-    io.memWriteAddress := 0.U
-    io.memWriteData := 0.U
-    io.LSUOut := 0.U
-
-    // status
-    val IDLE = 0.U(2.W)         // 0b00
-    val REQUESTING = 1.U(2.W)   // 0b01
-    val WAITING = 2.U(2.W)      // 0b10
-    val DONE = 3.U(2.W)         // 0b11
-
-    val lsuStateReg = RegInit(IDLE);
+    val LSUStateReg = RegInit(LSUStateEnum.IDLE)
+    val LSUOutReg = RegInit(0.U(8.W))
+    val memReadValidReg = RegInit(false.B)
+    val memReadAddressReg = RegInit(0.U(8.W))
+    val memWriteValidReg = RegInit(false.B)
+    val memWriteAddressReg = RegInit(0.U(8.W))
+    val memWriteDataReg = RegInit(0.U(8.W))
 
     when (reset.asBool) {
-        lsuStateReg := IDLE
-        io.LSUOut := 0.U
-        io.memReadValid := false.B
-        io.memReadAddress := 0.U
-        io.memWriteValid := false.B
-        io.memWriteAddress := 0.U
-        io.memWriteData := 0.U
+        LSUStateReg := LSUStateEnum.IDLE
+        LSUOutReg := 0.U
+        memReadValidReg := false.B
+        memReadAddressReg := 0.U
+        memWriteValidReg := false.B
+        memWriteAddressReg := 0.U
+        memWriteDataReg := 0.U
     } .elsewhen (io.enable) {
         // if memory read enable is triggered (LDR) instruction
         when (io.decodedMemReadEnable) {
-            when (lsuStateReg === IDLE) {
+            when (LSUStateReg === LSUStateEnum.IDLE) {
                 // only read when coreState is REQUEST
                 when (io.coreState === "b101".U) {
-                    lsuStateReg := REQUESTING
+                    LSUStateReg := LSUStateEnum.REQUESTING
                 } 
-            } .elsewhen (lsuStateReg === REQUESTING) {
-                io.memReadValid := true.B
-                io.memReadAddress := io.rs
-                lsuStateReg := WAITING
-            } .elsewhen (lsuStateReg === WAITING) {
+            } .elsewhen (LSUStateReg === LSUStateEnum.REQUESTING) {
+                memReadValidReg := true.B
+                memReadAddressReg := io.rs
+                LSUStateReg := LSUStateEnum.WAITING
+            } .elsewhen (LSUStateReg === LSUStateEnum.WAITING) {
                 when (io.memReadReady) {
-                    io.memReadValid := false.B
-                    io.LSUOut := io.memReadData
-                    lsuStateReg := DONE
+                    memReadValidReg := false.B
+                    LSUOutReg := io.memReadData
+                    LSUStateReg := LSUStateEnum.DONE
                 }
-            } .elsewhen (lsuStateReg === DONE) {
+            } .elsewhen (LSUStateReg === LSUStateEnum.DONE) {
                 when (io.coreState === "b110".U){
                     // reset when coreState is UPDATE
-                    lsuStateReg := IDLE
+                    LSUStateReg := LSUStateEnum.IDLE
                 }
             }
         }
@@ -87,32 +84,36 @@ class LSU extends Module {
 
     // if memory write enable is triggered (STR instruction)
     when (io.decodedMemWriteEnable) {
-        when (lsuStateReg === IDLE) {
+        when (LSUStateReg === LSUStateEnum.IDLE) {
             // only write when coreState is REQUEST
             when (io.coreState === "b101".U) {
-                lsuStateReg := REQUESTING
+                LSUStateReg := LSUStateEnum.REQUESTING
             }
-        } .elsewhen (lsuStateReg === REQUESTING) {
-            io.memWriteValid := true.B
-            io.memWriteAddress := io.rs
-            io.memWriteData := io.rt
-            lsuStateReg := WAITING
-        } .elsewhen (lsuStateReg === WAITING) {
+        } .elsewhen (LSUStateReg === LSUStateEnum.REQUESTING) {
+            memWriteValidReg := true.B
+            memWriteAddressReg := io.rs
+            memWriteDataReg := io.rt
+            LSUStateReg := LSUStateEnum.WAITING
+        } .elsewhen (LSUStateReg === LSUStateEnum.WAITING) {
             when (io.memWriteReady) {
-                io.memWriteValid := false.B
-                lsuStateReg := DONE
+                memWriteValidReg := false.B
+                LSUStateReg := LSUStateEnum.DONE
             }
-        } .elsewhen (lsuStateReg === DONE) {
+        } .elsewhen (LSUStateReg === LSUStateEnum.DONE) {
             when (io.coreState === "b110".U){
                 // reset when coreState is UPDATE
-                lsuStateReg := IDLE
+                LSUStateReg := LSUStateEnum.IDLE
             }
         }
     }
 
-
-    io.LSUState := lsuStateReg
-
+    io.LSUState := LSUStateReg
+    io.LSUOut := LSUOutReg
+    io.memReadValid := memReadValidReg
+    io.memReadAddress := memReadAddressReg
+    io.memWriteValid := memWriteValidReg
+    io.memWriteAddress := memWriteAddressReg
+    io.memWriteData := memWriteDataReg
 }
 
 object LSUMain extends App {
